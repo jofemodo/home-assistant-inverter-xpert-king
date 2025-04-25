@@ -25,8 +25,7 @@ _LOGGER = logging.getLogger(__name__)
 # (in square brackets), rather than the actual translated value. I did not attempt to
 # figure this out or look further into it.
 DATA_SCHEMA = vol.Schema({
-    ("host"): str,
-    ("port"): int
+    ("device"): str
 })
 
 async def validate_input(hass: HomeAssistant, data: dict) -> dict[str, Any]:
@@ -36,20 +35,28 @@ async def validate_input(hass: HomeAssistant, data: dict) -> dict[str, Any]:
     """
     # Validate the data can be used to set up a connection.
 
+    _LOGGER.debug("Validating input...")
+
     # This is a simple example to show an error in the UI for a short hostname
     # The exceptions are defined at the end of this file, and are used in the
     # `async_step_user` method below.
-    if len(data["host"]) < 3:
-        raise InvalidHost
+    if "device" not in data or len(data["device"]) < 3:
+        raise InvalidDevice
 
-    hub = Hub(hass, data["host"],data["port"])
+    hub = Hub(hass, data["device"])
+    hub.init_inverter()
+
     # The dummy hub provides a `test_connection` method to ensure it's working
     # as expected
-    result = await hub.test_connection()
+    _LOGGER.debug("Testing connection ...")
+    result = hub.test_connection()
+    #result = None
     if not result:
         # If there is an error, raise an exception to notify HA that there was a
         # problem. The UI will also show there was a problem
         raise CannotConnect
+    else:
+        _LOGGER.info(f"Inverter in mode {result}")
 
     # If your PyPI package is not built with async, pass your methods
     # to the executor:
@@ -59,14 +66,12 @@ async def validate_input(hass: HomeAssistant, data: dict) -> dict[str, Any]:
 
     # If you cannot connect:
     # throw CannotConnect
-    # If the authentication is wrong:
-    # InvalidAuth
-
+ 
     # Return info that you want to store in the config entry.
     # "Title" is what is displayed to the user for this hub device
     # It is stored internally in HA as part of the device config.
     # See `async_step_user` below for how this is used
-    return {"title": data["host"]}
+    return {"title": data["device"]}
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -90,16 +95,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 info = await validate_input(self.hass, user_input)
-
                 return self.async_create_entry(title=info["title"], data=user_input)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
-            except InvalidHost:
+            except InvalidDevice:
                 # The error string is set here, and should be translated.
                 # This example does not currently cover translations, see the
                 # comments on `DATA_SCHEMA` for further details.
                 # Set the error on the `host` field, not the entire form.
-                errors["host"] = "cannot_connect"
+                errors["device"] = "invalid_device"
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
@@ -114,5 +118,5 @@ class CannotConnect(exceptions.HomeAssistantError):
     """Error to indicate we cannot connect."""
 
 
-class InvalidHost(exceptions.HomeAssistantError):
-    """Error to indicate there is an invalid hostname."""
+class InvalidDevice(exceptions.HomeAssistantError):
+    """Error to indicate there is an invalid device name."""

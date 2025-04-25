@@ -1,71 +1,124 @@
-import socket
+import os
 import json
-from datetime import datetime
+import socket
+import logging
+import traceback
 from textwrap import wrap
-from os import path
+from datetime import datetime
 
 from ..inverter.crc16pureclass import *
 
-class InverterClient:
-    def __init__(self,  device_ip: str, device_port: int):
-        self.device_ip = device_ip
-        self.device_port = device_port
-        self.connected = False
+_LOGGER = logging.getLogger(__name__)
 
-        self.manufacturer=''
-        self.model=''
-        self.firmware_version=''
+
+def GetCommandList():
+    basepath = os.path.dirname(__file__)
+    filepath = basepath + "/inverter_commands.json"
+    data_file = open(filepath)
+    data = json.load(data_file)
+    data_file.close()
+    return data
+
+
+CommandList = GetCommandList()
+
+
+class InverterClient:
+    def __init__(self,  device_fpath: str):
+        self.device_fpath = device_fpath
+        self.connected = False
+        self.client_fstream = None
+
+        self.manufacturer = ''
+        self.model = ''
+        self.firmware_version = ''
 
     def connect(self):
+        _LOGGER.debug("Connecting to inverter...")
         try:
-            self.client_socket = socket.socket()
-            self.client_socket.settimeout(10)
-            self.client_socket.connect((self.device_ip, self.device_port))
-            self.connected=True
-
-            self.manufacturer=self.get_model2()
-            self.model=self.get_model()
-            self.firmware_version=self.get_cpu_firmware_version() + ' / '+ self.get_panel_firmware_version()
-
-            return 1
-        except socket.error:
+            if self.device_fpath.startswith("/dev/hidraw"):
+                self.client_fstream = open(self.device_fpath, "wb+")
+                self.connected=True
+                _LOGGER.debug(f"Inverter device '{self.device_fpath}' opened.")
+                #self.get_basic_info()
+                return 1
+            else:
+                self.connected=False
+                _LOGGER.error(f"Invalid inverter device name: '{self.device_fpath}'")
+                return 0
+        except Exception as e:
+            _LOGGER.error(f"Can't open inverter device '{self.device_fpath}': {e} ")
             self.disconnect()
             return 0
 
+    def readline(self, limit=1):
+    	res = bytes()
+    	while len(res) < limit:
+    	    b = self.client_fstream.read(1)
+    	    res += b
+    	    if b[0] == 13:
+    	    	break
+    	return res
+
+    def get_basic_info(self):
+        try:
+            self.manufacturer=self.get_model2()
+            _LOGGER.debug(f"Inverter Manufacturer: {self.manufacturer}")
+            self.model=self.get_model()
+            _LOGGER.debug(f"Inverter Model: {self.model}")
+            self.firmware_version=self.get_cpu_firmware_version() + ' / '+ self.get_panel_firmware_version()
+            _LOGGER.debug(f"Inverter Firmware: {self.firmware_version}")
+            return 1
+        except Exception as e:
+            _LOGGER.error(f"Can't read data from inverter device '{self.device_fpath}': {e}")
+            #_LOGGER.exception(traceback.format_exc())
+            return 0
+
     def disconnect(self):
-        self.client_socket.close()
+        if self.client_fstream:
+            self.client_fstream.close()
         self.connected = False
+        self.client_fstream = None
         return 1
     
     def reconnect(self):
         self.disconnect()
-        self.connect()
+        return self.connect()
 
-    def calc_crc(self,command):
+    def calc_crc(self, command):
         crc_calc = CRC16Calc()
-        crc_int=crc_calc.crc16xmodem(command)
-        #crc_int=crc16pure.crc16xmodem(command)
-        #crc_hex=hex(crc_int)
-        crc_bytes=crc_int.to_bytes(2,'big')
+        crc_int = crc_calc.crc16xmodem(command)
+        #crc_int = crc16pure.crc16xmodem(command)
+        #crc_hex = hex(crc_int)
+        crc_bytes = crc_int.to_bytes(2,'big')
         return crc_bytes
 
-    def get_data(self,command,param=''):
-        if (self.connected == False):
-            self.connect()
-
+    def get_data(self, command, param=''):
         match command:
            case 'QLD':
-            if(param==''): # if total energy per day without date set current date
-                cur_date=datetime.today().strftime('%Y%m%d')
-                param=cur_date            
+            if(param == ''): # if total energy per day without date set current date
+                cur_date = datetime.today().strftime('%Y%m%d')
+                param = cur_date            
 
-        message=bytes(command+param,'latin1') + self.calc_crc(command+param) + bytes([13])
-        try:
-            self.client_socket.send(message)
-            data = self.client_socket.recv(1024).decode('latin1')
-        except socket.error:
+        _LOGGER.debug(f"Getting data from inverter: {command}({param})")
+        message = bytes(command+param,'latin1') + self.calc_crc(command+param) + bytes([13])
+        _LOGGER.debug(f"MEASSAGE: {message}")
+        
+        if self.connected and self.client_fstream:
+            try:
+                self.client_fstream.write(message)
+                self.client_fstream.flush()
+                data = self.readline(1024).decode('latin1')
+            except:
+                _LOGGER.exception(traceback.format_exc())
+                self.reconnect()
+                return []
+        else:
+            _LOGGER.error(f"Not connected! => Reconnecting ...")
             self.reconnect()
             return []
+
+        _LOGGER.debug(f"RESULT: {data}")
         data=data.lstrip('(').strip()
         data_size = len(data)
         data = data[:data_size - 2] # remove crc, but maybe will be return later and add crc check to ensure packet data is correct
@@ -80,25 +133,16 @@ class InverterClient:
 
         return data_array
 
-    def GetCommandList(self):
-        basepath = path.dirname(__file__)
-        filepath = basepath + "/inverter_commands.json"
-        data_file = open(filepath)
-        data = json.load(data_file)
-        data_file.close()
-        return data
-    
     def GetCommandByType(self,command_type):
-        command_data=self.GetCommandList()
-        command_list={
-               'data':['QPIGS','QMOD','QPIWS','QFLAG','QET','QLT','QLD','QPIGS2'],
-               'conf':['QID','QGMN','QPIRI','QVFW','QVFW3','QVFW2','QMN']
+        command_list = {
+            'data':['QPIGS','QMOD','QPIWS','QFLAG','QET','QLT'], # ,'QLD','QPIGS2'
+            'conf':['QID','QGMN','QPIRI','QVFW','QVFW3','QVFW2','QMN']
         }
 
-        command_result={}
+        command_result = {}
         for command in command_list[command_type]:
-           if command in command_data:
-            command_result[command]=command_data[command]
+           if command in CommandList:
+            command_result[command] = CommandList[command]
 
         return command_result
 
@@ -126,7 +170,7 @@ class InverterClient:
 
     def process_data(self,command,inverter_data):
         res=[]
-        command_params=self.GetCommandList()[command]
+        command_params = CommandList[command]
 
         for index in range(len(inverter_data)):
          try:
@@ -315,11 +359,13 @@ class InverterClient:
         received_data=self.process_data(command,inverter_data)
         return received_data
 
+    # This doesn't work!
     def get_energy_today(self):
         command='QLD';
         cur_date=datetime.today().strftime('%Y%m%d')
         cur_date_reset_time=datetime.today().strftime('%Y-%m-%d') + ' 00:00:00'
-        inverter_data=self.get_data(command,cur_date)
+        #inverter_data=self.get_data(command,cur_date)
+        inverter_data = []
         received_data=self.process_data(command,inverter_data)
         received_data[0]["last_reset"]=cur_date_reset_time
         return received_data[0]
@@ -330,8 +376,16 @@ class InverterClient:
         received_data=self.process_data(command,inverter_data)
         return received_data[0]
 
+    # This doesn't work!
     def set_current_time(self):
         command='DAT'
         cur_date_time=datetime.today().strftime('%y%m%d%H%M%S')
-        set_time=self.get_data(command,cur_date_time)
-        return (set_time[0]=='AC') # True if inverter respond with ACK
+        #set_time=self.get_data(command,cur_date_time)
+        #return (set_time[0]=='ACK') # True if inverter respond with ACK
+        return False
+
+    def get_current_time(self):
+        command='QT'
+        res = self.get_data(command)
+        return res[0]
+

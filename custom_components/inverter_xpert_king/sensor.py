@@ -50,7 +50,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     hub = hass.data[DOMAIN][config_entry.entry_id]
 
     new_devices = []
-    for inverter in hub.inverters:
+    for inverter in [hub.inverter]:
         coordinator = InverterDataCoordinator(hass, hub, inverter)
         await coordinator.async_config_entry_first_refresh()
 
@@ -348,7 +348,6 @@ class SensorInverterEnergyTotal(SensorInverter):
         self.device_class = SensorDeviceClass.ENERGY
         #self.state_class = SensorStateClass.TOTAL_INCREASING # usefull, but untill we solve problem with processing incoming data with zerovalues TOTAL_INCREASING will lead to incorrect data aggregation on HA side
         self.state_class = SensorStateClass.TOTAL
-
 
 class SensorInverterBatteryCurrent(SensorInverter):
     device_class = SensorDeviceClass.CURRENT

@@ -18,21 +18,21 @@ _LOGGER = logging.getLogger(__name__)
 class Hub:
     manufacturer = "Inverter"
 
-    def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
+    def __init__(self, hass: HomeAssistant, device: str) -> None:
         """Init hub."""
-        self._host = host
-        self._port = port
+        self._id = "0"
+        self._device = device
         self._hass = hass
-        self.inverter_client=InverterClient(host,port)
+        #self.init_inverter()
+
+    async def init_inverter(self):
+        self.inverter_client=InverterClient(self._device)
         self.inverter_client.connect()
-        self._name = "Inverter " + host
-        self._id = host.lower()
+        self.inverter_client.get_basic_info()
+
+        self._name = f"Inverter {self._id}: {self._device}"
         self.manufacturer=self.inverter_client.manufacturer
-        self.inverters = [
-            Inverter(f"{self._id}_1", f"{self._name}", self),
-            #Inverter(f"{self._id}_2", f"{self._name} 2", self),
-            #Inverter(f"{self._id}_3", f"{self._name} 3", self),
-        ]
+        self.inverter = Inverter(self._id, self._name, self)
         self.online = True
 
     @property
@@ -117,3 +117,5 @@ class Inverter:
         #self.update_data()
         return self.hub.inverter_client.connected
 
+    def reconnect(self):
+        return self.hub.inverter_client.reconnect()

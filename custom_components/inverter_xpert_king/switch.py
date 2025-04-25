@@ -36,7 +36,7 @@ async def async_setup_entry(
     hub = hass.data[DOMAIN][config_entry.entry_id]
 
     # Add all entities to HA
-    async_add_entities(TimeSyncSwitch(inverter) for inverter in hub.inverters)
+    async_add_entities([TimeSyncSwitch(hub.inverter)])
 
 
 # This entire class could be written to extend a base class to ensure common attributes

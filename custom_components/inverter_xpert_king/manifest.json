@@ -1,15 +1,16 @@
 {
   "domain": "inverter_xpert_king",
   "name": "Inverter Xpert King",
-  "codeowners": ["@astraliens"],
+  "codeowners": ["@astraliens", "@jofemodo"],
+  "loggers": ["custom_components.inverter_xpert_king"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/astraliens/home-assistant-inverter-xpert-king",
-  "issue_tracker": "https://github.com/astraliens/home-assistant-inverter-xpert-king/issues",
+  "documentation": "https://github.com/jofemodo/home-assistant-inverter-xpert-king",
+  "issue_tracker": "https://github.com/jofemodo/home-assistant-inverter-xpert-king/issues",
   "homekit": {},
   "iot_class": "local_polling",
   "requirements": [],
   "ssdp": [],
-  "version": "0.1.5",
+  "version": "0.2.0",
   "zeroconf": []
 }
